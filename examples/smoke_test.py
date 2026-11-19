@@ -71,7 +71,7 @@ def main():
         report["error"] = {
             "type": type(error).__name__,
             "message": str(error),
-            "job_id": getattr(error, "job_id", None) or (job.id if job else None),
+            "job_id": getattr(error, "job_id", None) or (str(job.id) if job else None),
         }
         save(args.output_dir / "report.json", report)
         parser.exit(1, f"{error}\nInspect report.json and recover the same job; do not resubmit.\n")

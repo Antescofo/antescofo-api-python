@@ -7,6 +7,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
+from uuid import UUID
 
 from ._inputs import positive_seconds, prepare_inputs, validate_file
 from ._transport import Transport
@@ -135,7 +136,7 @@ class PerformanceAnalyzer:
         )
         if not job.upload_urls.get("audio") or not job.upload_urls.get("score"):
             raise ProtocolError(
-                "Creation did not return both upload URLs. Do not resubmit.", job_id=job.id
+                "Creation did not return both upload URLs. Do not resubmit.", job_id=str(job.id)
             )
         self.upload_inputs(job, audio=inputs.audio, score=inputs.score)
         return job
@@ -147,7 +148,7 @@ class PerformanceAnalyzer:
         hour); GET job details does not refresh them. Server processing starts
         automatically. This method does not cancel already-started processing.
         """
-        normalize_job_id(job.id)
+        identifier = normalize_job_id(job.id)
         try:
             audio_path = validate_file(audio, {".mp3", ".wav"}, "Audio")
             score_path = validate_file(score, {".xml", ".musicxml"}, "Score")
@@ -155,7 +156,7 @@ class PerformanceAnalyzer:
                 raise ValueError("Use the original creation handle containing upload URLs.")
             for role, path in (("score", score_path), ("audio", audio_path)):
                 with path.open("rb") as source:
-                    self._transport.upload(job.upload_urls[role], source, job_id=job.id)
+                    self._transport.upload(job.upload_urls[role], source, job_id=identifier)
         except (OSError, ValueError, TransportError, ConfigurationError, ProtocolError) as error:
             raise UploadError(
                 f"Input transfer failed: {error} Preserve this handle and retry upload_inputs with "
@@ -165,18 +166,18 @@ class PerformanceAnalyzer:
 
 
 class Jobs:
-    """Retrieve, wait for, and recover existing jobs without consuming new quota."""
+    """Retrieve, wait for, and recover jobs by UUID or UUID string without new quota."""
 
     def __init__(self, transport: Transport) -> None:
         self._transport = transport
 
-    def get(self, job_id: str) -> Job:
+    def get(self, job_id: str | UUID) -> Job:
         identifier = normalize_job_id(job_id)
         return self._get(identifier)
 
     def wait(
         self,
-        job_id: str,
+        job_id: str | UUID,
         *,
         timeout_seconds: float = 1800,
         poll_interval_seconds: float = 3,
@@ -204,21 +205,22 @@ class Jobs:
                 raise JobTimeoutError(job_id=identifier, last_job=last_job)
             time.sleep(min(interval, remaining))
 
-    def get_result(self, job_id: str) -> dict[str, Any]:
+    def get_result(self, job_id: str | UUID) -> dict[str, Any]:
         """Download a successful job's JSON; this method does not wait for compute.
 
         Each call obtains a fresh signed URL. Missing/wrong/extra notes, velocity,
         onset deviations, assessments, and future fields are preserved as returned.
         """
         job = self.get(job_id)
+        identifier = str(job.id)
         raise_terminal_error(job)
         if job.status != "succeeded":
             raise ResultUnavailableError(
-                "The job has not succeeded yet. Call jobs.wait first.", job_id=job.id
+                "The job has not succeeded yet. Call jobs.wait first.", job_id=identifier
             )
-        files = self._transport.api("GET", f"jobs/{job.id}/files/", job_id=job.id)
+        files = self._transport.api("GET", f"jobs/{identifier}/files/", job_id=identifier)
         if not isinstance(files, dict) or not isinstance(files.get("outputs"), list):
-            raise ProtocolError("The files response is invalid.", job_id=job.id)
+            raise ProtocolError("The files response is invalid.", job_id=identifier)
         matches = [
             output
             for output in files["outputs"]
@@ -228,17 +230,19 @@ class Jobs:
         ]
         if not matches:
             raise ResultUnavailableError(
-                "Analysis output is not available. Retry this same job.", job_id=job.id
+                "Analysis output is not available. Retry this same job.", job_id=identifier
             )
         if len(matches) != 1 or not isinstance(matches[0].get("url"), str):
-            raise ProtocolError("The analysis output is ambiguous or invalid.", job_id=job.id)
+            raise ProtocolError("The analysis output is ambiguous or invalid.", job_id=identifier)
         try:
-            result = self._transport.download(matches[0]["url"], job_id=job.id)
+            result = self._transport.download(matches[0]["url"], job_id=identifier)
         except ConfigurationError:
-            raise ProtocolError("The API returned an unsafe result URL.", job_id=job.id) from None
+            raise ProtocolError(
+                "The API returned an unsafe result URL.", job_id=identifier
+            ) from None
         if not isinstance(result, dict) or not isinstance(result.get("alignment_interop"), list):
             raise ProtocolError(
-                "Analysis JSON must contain alignment_interop events.", job_id=job.id
+                "Analysis JSON must contain alignment_interop events.", job_id=identifier
             )
         assessment = result.get("assessment")
         if assessment is not None and (
@@ -249,7 +253,7 @@ class Jobs:
                 and not isinstance(assessment["overall"], (float, int))
             )
         ):
-            raise ProtocolError("Analysis assessment has an unexpected format.", job_id=job.id)
+            raise ProtocolError("Analysis assessment has an unexpected format.", job_id=identifier)
         return cast(dict[str, Any], result)
 
     def list(

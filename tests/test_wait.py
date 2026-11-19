@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 
 from antescofo_api import JobCanceledError, JobFailedError, JobTimeoutError, ProtocolError
@@ -24,12 +26,15 @@ def clock(monkeypatch):
     return value
 
 
-def test_polls_after_responses_every_three_seconds(client, requests_mock, clock):
+@pytest.mark.parametrize("job_id", [JOB_ID, UUID(JOB_ID)])
+def test_polls_after_responses_every_three_seconds(client, requests_mock, clock, job_id):
     requests_mock.get(
         JOB_URL,
         [{"json": job_payload(status)} for status in ["pending", "ready", "running", "succeeded"]],
     )
-    assert client.jobs.wait(JOB_ID).status == "succeeded"
+    job = client.jobs.wait(job_id)
+    assert job.status == "succeeded"
+    assert job.id == UUID(JOB_ID)
     assert clock.sleeps == [3, 3, 3]
     assert requests_mock.call_count == 4
 
@@ -37,13 +42,15 @@ def test_polls_after_responses_every_three_seconds(client, requests_mock, clock)
 @pytest.mark.parametrize(
     "status,kind", [("failed", JobFailedError), ("canceled", JobCanceledError)]
 )
-def test_terminal_failures_stop_polling(client, requests_mock, clock, status, kind):
+@pytest.mark.parametrize("job_id", [JOB_ID, UUID(JOB_ID)])
+def test_terminal_failures_stop_polling(client, requests_mock, clock, status, kind, job_id):
     requests_mock.get(
         JOB_URL, json=job_payload(status, error={"message": "No detected observations."})
     )
     with pytest.raises(kind) as error:
-        client.jobs.wait(JOB_ID)
+        client.jobs.wait(job_id)
     assert error.value.job_id == JOB_ID
+    assert error.value.job.id == UUID(JOB_ID)
     assert error.value.job.status == status
     assert requests_mock.call_count == 1
     assert clock.sleeps == []
@@ -57,16 +64,18 @@ def test_generic_failed_message(client, requests_mock):
         client.jobs.get_result(JOB_ID)
 
 
-def test_timeout_preserves_id_and_can_resume_without_post(client, requests_mock, clock):
+@pytest.mark.parametrize("job_id", [JOB_ID, UUID(JOB_ID)])
+def test_timeout_preserves_id_and_can_resume_without_post(client, requests_mock, clock, job_id):
     requests_mock.get(JOB_URL, json=job_payload("running"))
     with pytest.raises(JobTimeoutError) as error:
-        client.jobs.wait(JOB_ID, timeout_seconds=5)
+        client.jobs.wait(job_id, timeout_seconds=5)
     assert error.value.job_id == JOB_ID
+    assert error.value.last_job.id == UUID(JOB_ID)
     assert error.value.last_job.status == "running"
     assert clock.sleeps == [3, 2]
     assert all(request.method == "GET" for request in requests_mock.request_history)
     requests_mock.get(JOB_URL, json=job_payload("succeeded"))
-    assert client.jobs.wait(JOB_ID).status == "succeeded"
+    assert client.jobs.wait(error.value.job_id).status == "succeeded"
 
 
 def test_slow_poll_uses_remaining_budget(client, requests_mock, clock):

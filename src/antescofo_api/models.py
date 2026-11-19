@@ -16,13 +16,13 @@ JOB_STATUSES = {"pending", "ready", "running", "succeeded", "failed", "canceled"
 class Job:
     """A job snapshot. Upload URLs are temporary credentials, omitted from repr.
 
-    id is the API's uuid. upload_urls is present only on a creation handle;
-    status retrieval cannot recreate expired or lost upload URLs.
+    id is the API's uuid as a UUID object. upload_urls is present only on a
+    creation handle; status retrieval cannot recreate expired or lost upload URLs.
     audio_duration_seconds is the API's file_duration, if available; the client
     does not measure it or substitute a local estimate.
     """
 
-    id: str
+    id: UUID
     status: JobStatus
     module: str | None = None
     audio_duration_seconds: int | None = None
@@ -32,9 +32,9 @@ class Job:
     upload_urls: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
-        """Export a snapshot without signed URLs; suitable for recovery records."""
+        """Export a snapshot with a UUID string and no signed URLs for recovery records."""
         return {
-            "uuid": self.id,
+            "uuid": str(self.id),
             "status": self.status,
             "module": self.module,
             "file_duration": self.audio_duration_seconds,
@@ -81,7 +81,7 @@ def parse_job(payload: Any, *, job_id: str | None = None) -> Job:
         if payload.get(name) is not None and not isinstance(payload[name], str):
             raise ProtocolError(f"The API returned an invalid {name}.", job_id=identifier)
     return Job(
-        id=identifier,
+        id=UUID(identifier),
         status=cast(JobStatus, status),
         module=payload.get("module"),
         audio_duration_seconds=duration,
@@ -92,7 +92,9 @@ def parse_job(payload: Any, *, job_id: str | None = None) -> Job:
     )
 
 
-def normalize_job_id(value: str) -> str:
+def normalize_job_id(value: str | UUID) -> str:
+    if isinstance(value, UUID):
+        return str(value)
     if not isinstance(value, str):
-        raise ValueError("job_id must be a UUID string.")
+        raise ValueError("job_id must be a UUID or UUID string.")
     return str(UUID(value))

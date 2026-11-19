@@ -153,3 +153,39 @@ def test_smoke_report_writer_works_before_network(monkeypatch, tmp_path, inputs)
     monkeypatch.setattr(smoke_test, "save", cannot_save)
     with pytest.raises(OSError, match="Disk is read-only"):
         smoke_test.main()
+
+
+def test_smoke_report_serializes_job_id_after_local_failure(
+    monkeypatch, tmp_path, inputs, success_flow
+):
+    configure(monkeypatch, success_flow)
+    output = tmp_path / "report"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke_test.py",
+            "--base-url",
+            API,
+            "--audio",
+            str(inputs["audio"]),
+            "--score",
+            str(inputs["score"]),
+            "--output-dir",
+            str(output),
+            "--resume-job-id",
+            JOB_ID,
+        ],
+    )
+
+    def fail_wait(*args, **kwargs):
+        raise ValueError("Invalid wait option.")
+
+    monkeypatch.setattr("antescofo_api.client.Jobs.wait", fail_wait)
+    with pytest.raises(SystemExit) as error:
+        smoke_test.main()
+    assert error.value.code == 1
+    report = json.loads((output / "report.json").read_text())
+    assert report["job"]["uuid"] == JOB_ID
+    assert report["error"]["job_id"] == JOB_ID
+    assert all(request.method == "GET" for request in success_flow.request_history)

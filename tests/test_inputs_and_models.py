@@ -1,3 +1,6 @@
+import json
+from uuid import UUID
+
 import pytest
 
 from antescofo_api import ProtocolError
@@ -50,6 +53,9 @@ def test_invalid_inputs_consume_no_job(client, inputs, requests_mock, change):
         [],
         {},
         job_payload(uuid="bad"),
+        job_payload(uuid=None),
+        job_payload(uuid=42),
+        job_payload(uuid=[]),
         job_payload(status=[]),
         job_payload(error=[]),
         job_payload(upload_urls=[]),
@@ -66,6 +72,13 @@ def test_invalid_job_schema(payload):
         parse_job(payload)
 
 
+@pytest.mark.parametrize("identifier", [JOB_ID, JOB_ID.upper(), UUID(JOB_ID).hex])
+def test_job_id_is_a_uuid(identifier):
+    job = parse_job(job_payload(uuid=identifier))
+    assert isinstance(job.id, UUID)
+    assert job.id == UUID(JOB_ID)
+
+
 def test_job_dictionary_omits_signed_urls_and_files():
     job = parse_job(
         job_payload(
@@ -76,3 +89,9 @@ def test_job_dictionary_omits_signed_urls_and_files():
     assert job.to_dict()["uuid"] == JOB_ID
     assert "upload_urls" not in job.to_dict()
     assert "files" not in job.to_dict()
+    snapshot = json.loads(json.dumps(job.to_dict()))
+    restored = parse_job(snapshot)
+    assert restored.id == job.id
+    assert isinstance(restored.id, UUID)
+    assert restored.to_dict() == snapshot
+    assert restored.upload_urls == {}

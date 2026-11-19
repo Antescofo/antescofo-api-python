@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class AntescofoError(Exception):
-    """Base error; job_id identifies an existing job that can be recovered."""
+    """Base error; job_id is a UUID string for recovery, or None if unknown."""
 
     def __init__(self, message: str, *, job_id: str | None = None) -> None:
         super().__init__(message)
@@ -70,7 +70,7 @@ class UploadError(AntescofoError):
     """
 
     def __init__(self, message: str, *, job: Job) -> None:
-        super().__init__(message, job_id=job.id)
+        super().__init__(message, job_id=str(job.id))
         self.job = job
 
 
@@ -82,7 +82,7 @@ class JobFailedError(AntescofoError):
     """Analysis failed. job retains its status and server error details."""
 
     def __init__(self, message: str, *, job: Job) -> None:
-        super().__init__(message, job_id=job.id)
+        super().__init__(message, job_id=str(job.id))
         self.job = job
 
 
