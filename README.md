@@ -152,8 +152,8 @@ with AntescofoClient() as client:
 snapshot (normally `pending`); call `jobs.get` for the current status. A new
 process can resume with the saved ID without uploading or creating a job again.
 
-`Job.id` is a `uuid.UUID` object. `jobs.get`, `jobs.wait`, and `jobs.get_result`
-accept `str | UUID`: pass `job.id` directly or pass a saved UUID string.
+From version 0.3.1, `Job.id` is a `uuid.UUID` object. `jobs.get`, `jobs.wait`, and
+`jobs.get_result` accept `str | UUID`: pass `job.id` directly or pass a saved UUID string.
 Use `str(job.id)` when saving the ID as text or comparing it with a string.
 `job.to_dict()` exports the ID as a canonical string under `"uuid"` and omits
 signed URLs, so the snapshot can be saved with `json.dumps(job.to_dict())`.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - Return `Job.id` as a `uuid.UUID` object. Compare it with another UUID or use
   `str(job.id)` for text comparisons and storage. Direct `Job` construction now
