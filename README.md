@@ -142,7 +142,7 @@ from antescofo_api import AntescofoClient
 
 with AntescofoClient() as client:
     job = client.performance_analyzer.submit(audio="performance.mp3", score="score.xml")
-    print(job.id)  # Save this ID before doing other work.
+    print(str(job.id))  # Save this UUID string before doing other work.
     print(client.jobs.get(job.id).status)
     client.jobs.wait(job.id, timeout_seconds=1800)
     result = client.jobs.get_result(job.id)
@@ -151,6 +151,12 @@ with AntescofoClient() as client:
 `submit` returns after uploads, not after computation. It returns the creation
 snapshot (normally `pending`); call `jobs.get` for the current status. A new
 process can resume with the saved ID without uploading or creating a job again.
+
+From version 0.3.1, `Job.id` is a `uuid.UUID` object. `jobs.get`, `jobs.wait`, and
+`jobs.get_result` accept `str | UUID`: pass `job.id` directly or pass a saved UUID string.
+Use `str(job.id)` when saving the ID as text or comparing it with a string.
+`job.to_dict()` exports the ID as a canonical string under `"uuid"` and omits
+signed URLs, so the snapshot can be saved with `json.dumps(job.to_dict())`.
 
 | Method | Behavior |
 | --- | --- |
@@ -177,7 +183,8 @@ allowance even if uploads or analysis later fail.
 ## Errors And Recovery
 
 All library errors inherit from `AntescofoError`. Errors after creation normally
-include `job_id`; local validation errors are standard `ValueError`/`OSError`.
+include `job_id` as a UUID string (or `None` when unknown); local validation errors
+are standard `ValueError`/`OSError`.
 
 - `AuthenticationError`: API 401/403; check the key, membership, and environment.
 - `QuotaExceededError`: API 429; inspect `.code` and `.details` for admission limits.

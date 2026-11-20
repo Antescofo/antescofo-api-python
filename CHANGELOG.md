@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Return `Job.id` as a `uuid.UUID` object. Compare it with another UUID or use
+  `str(job.id)` for text comparisons and storage. Direct `Job` construction now
+  expects a UUID object.
+- Accept UUID objects or strings in `jobs.get`, `jobs.wait`, and `jobs.get_result`.
+  `Job.to_dict()` still exports a canonical UUID string under `"uuid"`, and
+  exception `job_id` fields remain strings for recovery records.
+
 ## 0.3.0
 
 - Select the public production API automatically: an API key is now the only

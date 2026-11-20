@@ -1,4 +1,5 @@
 import json
+from uuid import UUID
 
 import pytest
 import requests
@@ -74,7 +75,7 @@ def test_analyze_submits_once_and_preserves_full_output(client, inputs, success_
 
 def test_submit_returns_safe_handle_and_preserves_api_duration(client, inputs, success_flow):
     job = client.performance_analyzer.submit(**inputs)
-    assert job.id == JOB_ID
+    assert job.id == UUID(JOB_ID)
     assert job.status == "pending"
     assert job.upload_urls == {"score": SCORE_URL, "audio": AUDIO_URL}
     assert "signature" not in repr(job)
@@ -118,7 +119,7 @@ def test_upload_retry_reuses_handle_without_creating(client, inputs, success_flo
 
 
 def test_upload_missing_files_preserves_job(client, inputs):
-    job = Job(JOB_ID, "pending", upload_urls={"score": SCORE_URL, "audio": AUDIO_URL})
+    job = Job(UUID(JOB_ID), "pending", upload_urls={"score": SCORE_URL, "audio": AUDIO_URL})
     inputs["audio"].unlink()
     with pytest.raises(UploadError) as error:
         client.performance_analyzer.upload_inputs(job, **inputs)
@@ -127,7 +128,7 @@ def test_upload_missing_files_preserves_job(client, inputs):
 
 def test_upload_requires_original_handle(client, inputs):
     with pytest.raises(UploadError):
-        client.performance_analyzer.upload_inputs(Job(JOB_ID, "pending"), **inputs)
+        client.performance_analyzer.upload_inputs(Job(UUID(JOB_ID), "pending"), **inputs)
 
 
 @pytest.mark.parametrize("failure", [requests.ConnectionError, requests.Timeout])
@@ -200,11 +201,14 @@ def test_redirects_are_not_followed(client, inputs, success_flow, target):
         (503, APIError),
     ],
 )
-def test_api_errors_keep_status_code_body_and_job_id(client, requests_mock, status, error_class):
+@pytest.mark.parametrize("job_id", [JOB_ID, UUID(JOB_ID)])
+def test_api_errors_keep_status_code_body_and_job_id(
+    client, requests_mock, status, error_class, job_id
+):
     payload = {"code": "test_code", "detail": "Readable server explanation."}
     requests_mock.get(JOB_URL, status_code=status, json=payload)
     with pytest.raises(error_class) as error:
-        client.jobs.get(JOB_ID)
+        client.jobs.get(job_id)
     assert error.value.status_code == status
     assert error.value.code == "test_code"
     assert error.value.details == payload
@@ -262,17 +266,33 @@ def test_network_error_keeps_id_and_sanitizes_url(client, requests_mock):
     assert KEY not in str(error.value)
 
 
-@pytest.mark.parametrize("bad_id", ["../usage", "", "not-a-uuid", None])
-def test_invalid_ids_make_no_request(client, requests_mock, bad_id):
+@pytest.mark.parametrize("method", ["get", "wait", "get_result"])
+@pytest.mark.parametrize("job_id", [JOB_ID, UUID(JOB_ID), JOB_ID.upper(), UUID(JOB_ID).hex])
+def test_job_methods_accept_uuid_or_string(client, success_flow, method, job_id):
+    result = getattr(client.jobs, method)(job_id)
+    if method == "get_result":
+        assert result == RESULT
+    else:
+        assert isinstance(result.id, UUID)
+        assert result.id == UUID(JOB_ID)
+    assert success_flow.request_history[0].url == JOB_URL
+    assert all(request.method == "GET" for request in success_flow.request_history)
+
+
+@pytest.mark.parametrize("method", ["get", "wait", "get_result"])
+@pytest.mark.parametrize("bad_id", ["../usage", "", "not-a-uuid", None, 42, b"invalid"])
+def test_invalid_ids_make_no_request(client, requests_mock, method, bad_id):
     with pytest.raises(ValueError):
-        client.jobs.get(bad_id)
+        getattr(client.jobs, method)(bad_id)
     assert not requests_mock.called
 
 
-def test_mismatched_job_id_rejected(client, requests_mock):
+@pytest.mark.parametrize("job_id", [JOB_ID, UUID(JOB_ID)])
+def test_mismatched_job_id_rejected(client, requests_mock, job_id):
     requests_mock.get(JOB_URL, json=job_payload(uuid=OTHER_ID))
-    with pytest.raises(ProtocolError, match="different"):
-        client.jobs.get(JOB_ID)
+    with pytest.raises(ProtocolError, match="different") as error:
+        client.jobs.get(job_id)
+    assert error.value.job_id == JOB_ID
 
 
 def test_list_uses_filters_and_does_not_follow_next(client, requests_mock):
@@ -294,7 +314,7 @@ def test_list_uses_filters_and_does_not_follow_next(client, requests_mock):
         created_to="2026-12-01T00:00:00Z",
     )
     assert page.count == 42
-    assert page.results[0].id == JOB_ID
+    assert page.results[0].id == UUID(JOB_ID)
     assert page.next == "https://untrusted.example"
     assert requests_mock.call_count == 1
     assert requests_mock.last_request.qs["offset"] == ["20"]
